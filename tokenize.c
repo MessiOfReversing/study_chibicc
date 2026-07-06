@@ -7,9 +7,39 @@ static File *current_file;
 static File **input_files;
 
 // True if the current position is at the beginning of a line
+// 다시말해, 지금 읽고있는 글자가 위치한곳이 줄의 시작이 맞느냐는 불리언임
+/* 
+왜 이걸 알아야하느냐, #include라든가 #define등의 전처리 지시자는 
+반드시 줄의 맨앞이거나 공백만 있는 상태에서 맨앞이어야 하므로 
+코드 중간에 #include라든가 나와버리면 오류기 때문이다.
+
+예를들면
+
+// 올바른 전처리기 사용 (at_bol이 true인 상태에서 #을 만남)
+#include <stdio.h> 
+
+int main() {
+    int a = 1; #define X 2 // 이런 에러 말이다. 중간에 전처리기가 와서는 안되니까 말이다. 따라서 at_bol이 false일것.
+}
+
+*/
 static bool at_bol;
 
 // True if the current position follows a space character
+// 방금 읽은 글자 바로 직전에 혹시 공백이 있었느냐는 불리언이다.
+/* 
+주로 이런 작성이 목적일텐데
+
+1번: 매크로 함수 (괄호 앞에 공백이 없음 -> has_space가 false)
+#define MULTIPLY(x) ((x) * 2)  // 기계는 MULTIPLY(5)를 만나면 5 * 2로 바꿉니다.
+
+2번: 일반 매크로 치환 (괄호 앞에 공백이 있음 -> has_space가 true)
+#define MULTIPLY (x) ((x) * 2)  // 기계는 MULTIPLY라는 글자를 보면 통째로 '(x) ((x) * 2)'로 바꿉니다.
+
+이런 원리로 작동하므로 구분이 필요한것이다.
+
+혹은 공백의 유무를 나중에 보존해서 문자열을 올바르게 구현하기위해 쓸 수도 있다.
+*/
 static bool has_space;
 
 // Reports an error and exit.
@@ -25,6 +55,13 @@ void error(char *fmt, ...) {
 //
 // foo.c:10: x = y + 1;
 //               ^ <error message here>
+
+/*
+
+
+에러는 일단 꺼두겠음
+
+
 static void verror_at(char *filename, char *input, int line_no,
                       char *loc, char *fmt, va_list ap) {
   // Find a line containing `loc`.
@@ -74,61 +111,88 @@ void warn_tok(Token *tok, char *fmt, ...) {
   verror_at(tok->file->name, tok->file->contents, tok->line_no, tok->loc, fmt, ap);
   va_end(ap);
 }
-
+*/
 // Consumes the current token if it matches `op`.
+// 컴파일러가 코드를 읽으며 만나는 토큰 하나하나가 찾던 기호에 맞는가하는 고민을 하게 시키는 일이다.
 bool equal(Token *tok, char *op) {
-  return memcmp(tok->loc, op, tok->len) == 0 && op[tok->len] == '\0';
+  return memcmp(tok->loc, op, tok->len) == 0 && op[tok->len] == '\0'; //memcmp(A, B, 길이)
+  /* 
+  메모리를 아끼기 위함일텐데, 문자열 끝마다 \0을 넣는게 아니라 전체 소스코드 문자열의 특정 시작 지점 포인터 (tok -> loc)와
+  그 토큰의 길이 (tok -> len) 정보만 갖는다.
+
+  즉 memcmp로 현재 토큰의 길이만큼만을 찾는 문자열(op, 즉 +일수도 있고 ] 일수도 있고) 을 일치여부를 따지며 비교한다.
+
+  그 memcmp값이 0이며(같으면 0, 양수면 왼쪽이 더 크고, 음수면 오른쪽이 더 크다는 의미) 동시에 해당 op의 끝이 null이 맞아야 true다.
+  */
 }
 
 // Ensure that the current token is `op`.
 Token *skip(Token *tok, char *op) {
   if (!equal(tok, op))
     error_tok(tok, "expected '%s'", op);
-  return tok->next;
-}
+  return tok->next; // 내가 원하는 기호인 op가 맞다면 다음 토큰으로 넘어가고, 없으면 컴파일러 에러와 함께 종료하라는 의미다.
+} // -> 의 의미는 구조체의 next라는 멤버를 가져온다는 의미다. 즉 (*tok).next와 완전히 똑같이 작동한다.
 
 bool consume(Token **rest, Token *tok, char *str) {
   if (equal(tok, str)) {
-    *rest = tok->next;
+    *rest = tok->next; // 원하는 기호가 맞다면 rest의 메모리 주소 스택에 다음 토큰 집어넣고 true 반환해라
     return true;
   }
-  *rest = tok;
+  *rest = tok; // 틀리면 false 반환하고, 그 틀린 토큰 들고서 멈춰라
   return false;
 }
 
 // Create a new token.
+// 의미있는 토큰을 만나서 토큰 구조체로 잘 포장하는 블록이다.
 static Token *new_token(TokenKind kind, char *start, char *end) {
-  Token *tok = calloc(1, sizeof(Token));
-  tok->kind = kind;
-  tok->loc = start;
-  tok->len = end - start;
-  tok->file = current_file;
-  tok->filename = current_file->display_name;
-  tok->at_bol = at_bol;
-  tok->has_space = has_space;
+  Token *tok = calloc(1, sizeof(Token)); // 토큰 구조체를 만들 공간을 확보하고
+  tok->kind = kind; // 숫자인지, 식별자인지, 기호인지 이런 종류파악을 해낸다.
+  tok->loc = start; // 소스코드에서 해당 토큰이 시작되는 주소가 어딘지를 저장해낸다.
+  tok->len = end - start; // 해당 토큰이 몇글자 짜리인지 적어낸다. C언어에선 메모리 주소끼리의 뻴샘으로 글자수를 바이트수 단위로 알아낼 수 있다.
+  tok->file = current_file; // 토큰이 어느 파일에서 나온건지 적는데, 이건 에러 출력용으로 확보하는 정보다.
+  tok->filename = current_file->display_name; // 그걸 display_name이라는 멤버에 넣는거다
+  tok->at_bol = at_bol; // 맨위에서 했던 at_bol이다. 줄 시작점이었는지, 앞에 공백이 있었는지 등등
+  tok->has_space = has_space; // 이것도.
 
-  at_bol = has_space = false;
-  return tok;
+  at_bol = has_space = false; // 완성했으니 이제 at_bol, has_space 둘다 false로 초기화
+  return tok; // 완성한 토큰 구조체 반환.
 }
 
-static bool startswith(char *p, char *q) {
-  return strncmp(p, q, strlen(q)) == 0;
-}
+static bool startswith(char *p, char *q) { // 이 p가 에디터에 적힌 캐릭터를 가장 처음 읽어내는 포인터임. q는 띄어쓰기된 그 다음 캐릭터임
+  return strncmp(p, q, strlen(q)) == 0; // q의 길이만큼만 소스코드상 위치인 p에서부터 시작하여 잘라내고 q와 문자열 비교를 한다.
+} // 일치하면 0을 반환하므로 불리언은 0일때 true.
 
 // Read an identifier and returns the length of it.
 // If p does not point to a valid identifier, 0 is returned.
-static int read_ident(char *start) {
+static int read_ident(char *start) { // literally 식별자를 읽어낸다.
   char *p = start;
-  uint32_t c = decode_utf8(&p, p);
-  if (!is_ident1(c))
+  uint32_t c = decode_utf8(&p, p); // 이건 utf8이라는 한글과 유니코드 문자까지 변수명으로 쓸 수 있게 해주는 기능을 사용한다.
+  // decode_utf8(char **next, char *p)⁠ 는 이중포인터로 값을 돌려받기위한 주소와 현재 글을 읽을 시작주소를 인자로 갖는다.
+  // p부터 읽고 next에 다음글자 시작주소 적어 라는 의미.
+  if (!is_ident1(c)) 
+    /*
+    이렇게 ident1과 ident2로 나뉘게 되는데, 이것의 이유는 다음과 같다.
+
+    1. 첫글자 제한
+    : 변수 이름의 첫글자는 반드시 영어거나 언더바, 한글등 글자여야한다. 절대로 숫자여서는 안된다.
+
+    2. 두번째 글자부터는 자유
+    : 말그래도 두번째 글자포함 그 이후는 숫자든 뭐든 상관없다. 
+    이것이 C언어 코딩에서 첫째 변수라는 의도라고 하더라도 변수 이름을 1이라 하지는 못하고 num1 << 이런식으로 돌려서 써야하는 이유다.
+
+    따라서 ident1과 ident2로 첫글자 판단과 두번째글자 이후 판단을 따로 해줘야 하는 이유다.
+
+    &p니까 첫글자가 c에 들어갈텐데 그것이 utf8()즉 표준 규격에 맞느냐는 질문으로 맞으면 if문에 빠지는게 아닌 for문으로 들어가고, 규격에 맞지 않으면
+    0을 반환하게 된다.
+    */
     return 0;
 
-  for (;;) {
-    char *q;
-    c = decode_utf8(&q, p);
+  for (;;) { // 변수 이름이 어디까지인지 알기위한 반복문이다.
+    char *q; // 다음글자를 디코딩한다
+    c = decode_utf8(&q, p); // Ident2는 하나의 변수이름으로 온전할수가 없는 캐릭터가 있느냐 없느냐만 판단하는거다.
     if (!is_ident2(c))
-      return p - start;
-    p = q;
+      return p - start; // 길이를 리턴한다.
+    p = q; // 계속 그 다음 주소인 q로 p를 업데이트 해준다. 무한루프 consequences~
   }
 }
 
