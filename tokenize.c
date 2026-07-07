@@ -197,8 +197,8 @@ static int read_ident(char *start) { // literally 식별자를 읽어낸다.
 }
 
 static int from_hex(char c) {
-  if ('0' <= c && c <= '9')
-    return c - '0';
+  if ('0' <= c && c <= '9') // char는 캐릭터인척하는 정수다. 예를들어 A는 61, 61도 당연히 61. 그래서 즉각적인 비교가 가능하다. ctoi같은게 없는 이유다.
+    return c - '0'; // 그래서 문자로된 5가 들어오면 53으로 읽히기 때문에 0이라는 문자, 즉 48을 를 빼줘야 원래의 의도인 5로 읽히게 된다.
   if ('a' <= c && c <= 'f')
     return c - 'a' + 10;
   return c - 'A' + 10;
@@ -210,19 +210,33 @@ static int read_punct(char *p) {
     "<<=", ">>=", "...", "==", "!=", "<=", ">=", "->", "+=",
     "-=", "*=", "/=", "++", "--", "%=", "&=", "|=", "^=", "&&",
     "||", "<<", ">>", "##",
-  };
+  }; 
+/*
+	1.	kw 배열에는 2~3글자로 이루어진 복합 연산자들이 나열되어 있습니다.
+	e.g.	"<<=", ">>=", "..." → 3글자
+	e.g.	"==", "!=", "->", "+=" 등 → 2글자
+	2.	이 코드 아래에 이어지는 부분에서 p가 가리키는 위치부터 시작해서, kw 배열의 각 문자열과 앞부분이 일치하는지 비교합니다.
+	3.	일치하는 게 있으면 그 연산자의 길이(2 또는 3)를 반환하고, 없으면 단일 문자 연산자(+, -, ( 등)로 간주해서 길이 1을 반환합니다.
+
+파싱할때 <<랑 <<=를 두면 왼편으로 시프트인지, 시프트후 대입까지 해야하는지 분간을 해야할때 2글자만 먼저보고 3글자 확인하는 순서라면 <<랑 =가 분리되어버리므로 최대길이인 3부터 3->2 순서로 확인한다.
+*/
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++)
     if (startswith(p, kw[i]))
-      return strlen(kw[i]);
+      return strlen(kw[i]); // 존재할 수 있는 모든 복합연산자들이 있는 kw배열 포인터를 돌며 p가 그 연산자 문자열로 시작하는지를 비교한다.
 
-  return ispunct(*p) ? 1 : 0;
+  return ispunct(*p) ? 1 : 0; 
+/*
+	목록에 있는 연산자와 하나도 일치하지 않으면, 그냥 현재 문자 하나가 구두점(ispunct)인지 확인해서 1 또는 0을 반환합니다. (예: +, (, ; 같은 단일 문자 연산자)
+*/
 }
 
-static bool is_keyword(Token *tok) {
-  static HashMap map;
+static bool is_keyword(Token *tok) { 
+  static HashMap map; // 첫 호출인 지금만 초기화되고 그다음부터는 쭉 값이 유지가 되는 static이다.
+    // map 변수는 함수가 호출될때마다 생성되는 방식이 아닌 프로그램 실행시 데이터 세그먼트에 딱 한번만으로 고정된 공간을 차지한다.
 
-  if (map.capacity == 0) {
+  if (map.capacity == 0) { // 이번엔 예약어인지 확인한다. 이건 겹치는게 없으니 길이 고려 안한다.
+      // capacity가 0, 즉 완전히 처음 호출되는 경우라면 아래 코드대로 초기화를 진행한다는 의미이다. map 구조체는 기본적으로 0으로 초기화된채로 출발하므로..
     static char *kw[] = {
       "return", "if", "else", "for", "while", "int", "sizeof", "char",
       "struct", "union", "short", "long", "void", "typedef", "_Bool",
@@ -233,20 +247,69 @@ static bool is_keyword(Token *tok) {
       "typeof", "asm", "_Thread_local", "__thread", "_Atomic",
       "__attribute__",
     };
+    /*
+    C언어에선 변수 앞에 static을 붙이면 해당 변수는 데이터 세그먼트라는 메모리 영역에 할당이 된다.
+    그런 경우, 함수 호출이 끝나도 메모리에 보존이 되기때문에 그대로 보존이 되는것이다.
+    범위는 또한 작성된 중괄호 내에 한정된다.
+    */
 
     for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++)
       hashmap_put(&map, kw[i], (void *)1);
+      /* 
+      ⁠i = 0⁠ 일 때: ⁠kw[0]⁠은 ⁠"return"⁠입니다. ⁠hashmap_put(&map, "return", (void *)1);⁠이 실행되어 맵에 "return" : 1⁠이 저장됩니다.
+      ⁠i = 1⁠ 일 때: ⁠kw[1]⁠은 ⁠"if"⁠입니다. ⁠hashmap_put(&map, "if", (void *)1);⁠이 실행되어 맵에 "if" : 1⁠이 저장됩니다.
+ ⁠     i = 2⁠ 일 때: ⁠kw[2]⁠은 ⁠"else"⁠입니다. ⁠hashmap_put(&map, "else", (void *)1);⁠이 실행되어 맵에 ⁠"else" : 1⁠이 저장됩니다.
+      ...  
+ ⁠     i = 44⁠ 일 때 (마지막): ⁠kw[44]⁠인 ⁠"__attribute__"⁠까지 맵에 "__attribute__" : 1⁠로 저장하고 루프가 종료됩니다.
+      */
   }
 
   return hashmap_get2(&map, tok->loc, tok->len);
+/*
+tok->loc은 현재 검사중인 토큰이 시작되는 메모리주소.
+tok->len은 그 토큰의 길이다. 예를들어 int면 3이겠고, sizeof면 6 이런식이다.
+
+이 hashmap_get2에선 해시맵 내부에서 tok->loc과 tok->len에 들어맞는 문자열인 일명 key가 존재하는지 찾는다.
+따라서 steelo라는 존재하지 않는 예약어는 막아설 수 있다.
+
+예약어가 맞다면 (void *)1이 반환되는데 이는 0이 아닌 1이므로 불리언의 true와 완전히 갖게 읽힌다.
+그러나 steelo처럼 전혀 예약어가 아닌것이라면 null이 리턴되므로 이것이 0이기 때문에 false로 반환된다.
+
+hashmap_put(&map, kw[i], true); 로 작성이 가능했다면 가장 이상적이었겠지만 hashmap_put 설계상 
+해당 위치엔 메모리 주소가 요구된다. 따라서 일반 숫자를 줄수는 없고, 주소처럼 보이게 1을 적어둔것이다.
+
+hashmap_put(&map, kw[i], (void *)1);은 원래 구조가
+hashmap_put(HashMap *map, char *key, void *value);⁠ 이다.
+이는 각각 (지금 데이터를 저장할 구체적인 창고의 주소, 데이터를 찾는데에 사용할 식별자 문자열, 내가 저장하고자 하는 데이터값)이다.
+즉 원래의 기능상으로는
+// 회원의 상세 정보 데이터 구조체 (Value)
+User *hong = malloc(sizeof(User));
+hong->age = 30;
+hong->phone = "010-1234-5678";
+
+// 홍길동이라는 이름표(Key)로 회원 정보(Value)를 보관한다.
+hashmap_put(&user_box, "홍길동", hong);
+이렇게 입력하면 hashmap_get을 리턴했을때 나이 30과 전화번호가 담긴 데이터 객체를 반환받을 수 있다. 
+*/
 }
 
-static int read_escaped_char(char **new_pos, char *p) {
-  if ('0' <= *p && *p <= '7') {
+static int read_escaped_char(char **new_pos, char *p) { // 8진수인지 아닌지 확인하는 로직이다. 아마 밑에서 \를 만날때 8진수인지 확인하는 용도로 쓰일것이다.
+  if ('0' <= *p && *p <= '7') { // *p는 현재 읽고있는 캐릭터다.
     // Read an octal number.
     int c = *p++ - '0';
     if ('0' <= *p && *p <= '7') {
-      c = (c << 3) + (*p++ - '0');
+      c = (c << 3) + (*p++ - '0'); // 2진수에선 3비트는 8가지 숫자를 표현 가능하므로 8진수의 자릿수를 하나 올리는건 비트를 3칸 왼편으로 옮기는것과 같다.
+    /*
+    10진수로 예를들자면 123을 만들기 위해선 첫째자리에 1을적고, 10을 곱한뒤 2를더하여 12를 만든뒤, 또 10을 곱하여 3을 더하고 123을 완성한다.
+    8진수 역시 123을 8진수로 표현하려면 1을 읽고, 8을 곱하고 2를 더한뒤, 또 8을 곱하고 3을 더한다.
+
+    컴퓨터는 오직 2진수만을 취급하므로 이를 감안하여야 한다.
+    << 1 은 2진수 계산
+    << 2 는 4진수 계산
+    << 3 은 8진수 계산 이런식이다.
+
+    8진수 숫자의 
+    */
       if ('0' <= *p && *p <= '7')
         c = (c << 3) + (*p++ - '0');
     }
