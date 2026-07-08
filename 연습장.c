@@ -1,23 +1,83 @@
 /* main.c */
+#include <ctype.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-int main(int argc, char **argv) {
+typedef enum { // 열거형 정의 "앞으로 이 타입을 TokenKind 라고 부르겠다" 라는 의미
+TK_PUNCT, // 기호 (구분자, 연산자 등)를 의미함.
+TK_NUM, // 숫자를 의미함. like 정수 리터럴
+TK_EOF, // 파일의 끝을 알림.
+} TokenKind;
 
-  if (argc != 2) { // 이 프로그램 실행할때 넘겨받는 인자의 개수가 argc
-    // argv는 그 인자들의 실제 내용, 즉 문자열 배열
-    fprintf(stderr, "%s: invalid number of arguments\n", argv[0]);
-    // 여기선 숫자를 하나만 받아야해서 만약 하나씩받은 2가 아닌 다른수라면 이런 에러 메시지 프린트해야..
-    return 1;
+typedef struct Token Token;
+struct Token {
+  TokenKind kind; // 토큰의 종류
+  Token *next; // 다음 토큰
+  int val; // 만약 kind가 TK_NUM 이라면 그 값을 적음
+  char *loc; // 토큰의 위치
+  int len; // 토큰의 길이
+};
+
+static void error(char *fmt, ...) {
+  va_list ap; // 벡터 배열 리스트를 의미한다. 즉 이 ap를 받는 함수는 앞에 v가 붙는다. 기본적으로 작동은 순정과 동일하다.
+  va_start(ap, fmt); // fmt라고만 적으면 딱 *fmt에 저장된 타깃의 주소를 의미한다.
+  vfprintf(stderr, fmt, ap); // 사용자가 보낸 에러 내용인 fmt와 ap를 해석해서 stderr이라는 표준 에러 함수로 출력해라.
+  fprintf(stderr, "\n"); // 그리고 줄바꿈.
+  exit(1);
+}
+
+static bool equal(Token *tok, char *op) {
+  return memcmp(tok->loc, op, tok->len) == 0 && op[tok->len] == '\0';
+}
+
+static Token *skip(Token *tok, char *s) {
+  if (!equal(tok, s))
+    error("expected '%s'", s);
+  return tok->next; // equal이라면 if 패스하고 next를 반환.
+}
+
+static int get_number(Token *tok) {
+  if (tok->kind != TK_NUM) // 현재 조사중인 토큰이 숫자가 맞는지 확인해줄 함수임.
+    error("expected a number");
+  return tok->val;
+}
+
+static Token *new_token(TokenKind kind, char *start, char *end) {
+  Token *tok = calloc(1, sizeof(Token));
+  tok->kind = kind;
+  tok->loc = start;
+  tok->len = end - start;
+  return tok;
+}
+
+static Token *tokenize(char *p) {
+  Token head = {};
+  Token *cur = &head;
+
+  while (*p){
+    if (isspace(*p)) {
+      p++;
+      continue;
+    }
+    if (isdigit(*p)) {
+      cur = cur -> next = new_token(TK_NUM, p, p);
+      char *q = p;
+      cur->val = strtoul(p, &p, 10);
+      cur->len = p - q;
+      continue;
+    }
+    error("invalid token");
   }
-
-  char *p = argv[1];
-
-  printf(" .globl main\n"); // 이것은 어셈블러에게 main.c가 os같은 외부에게도 찾아져서 실행되게함.
-  printf("main:\n"); // 여기부터가 main의 시작점이라는 뜻
-  printf(" mov $%ld, %%rax\n", strtol(p, &p, 10)); 
-  // strtol은 문자열을 long int로 바꿔주는 함수이고, 세번째 인자의 10은 10진수로~ 라는 뜻이다.
-
+  cur = cur->next = new_token(TK_EOF, p, p);
+  return head.next;
+}
+/* 여기부터 이전 커밋 코드
+static bool equal(Token *tok, char *op) {
+  return memcmp(tok->loc, op, tok->len) == 0 && op[tok->len] == '\0';
+}
   while (*p) { // while (null) 에서 종료
     if (*p == '+') {
       p++;
