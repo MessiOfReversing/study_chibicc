@@ -11,18 +11,39 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  char *p = argv[1];
+
   printf(" .globl main\n"); // 이것은 어셈블러에게 main.c가 os같은 외부에게도 찾아져서 실행되게함.
   printf("main:\n"); // 여기부터가 main의 시작점이라는 뜻
-  printf(" mov $%d, %%rax\n", atoi(argv[1])); // mov는 레지스터인 rax에 argv[1]을 정수화해서 집어넣음
+  printf(" mov $%ld, %%rax\n", strtol(p, &p, 10)); 
+  // strtol은 문자열을 long int로 바꿔주는 함수이고, 세번째 인자의 10은 10진수로~ 라는 뜻이다.
+
+  while (*p) { // while (null) 에서 종료
+    if (*p == '+') {
+      p++;
+      printf(" add $%ld, %%rax\n", strtol(p, &p, 10));
+      continue;
+    }
+
+    if (*p == '-') {
+      p++;
+      printf(" sub $%ld, %%rax\n", strtol(p, &p, 10));
+      continue;
+    }
+
+    fprintf(stderr, "unexpected character: '%c'\n", *p);
+    return 1;
+  }
   printf(" ret\n"); // ret은 main이 끝나고 컴퓨터에게 제어권을 돌려내라는 명령어다. 이때문에 rax에 들었던 숫자가 프로그램의 최종 종료코드가 된다.
 /*
-따라서 만약 ./chibicc 7이라고 입력한다면 
+따라서 만약 4 + 3 - 1 로 입력한다면
  .globl main
 main:
- mov $7, %rax
+ mov $4, %rax
+ add $3, %rax
+ sub $1, %rax
  ret
-라고 만들어낼거임. 이게 tmp.s같은 이름으로 저장되면 gcc등으로 컴파일해서 진짜 실행시키는거임.
-그후엔 진짜 7을 종료코드로 남기며 끝나는 프로그램이 된다.
+다.
 */
   return 0;
   
