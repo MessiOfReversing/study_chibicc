@@ -39,30 +39,32 @@ static Token *skip(Token *tok, char *s) {
   return tok->next; // equal이라면 if 패스하고 next를 반환.
 }
 
-static int get_number(Token *tok) {
+static int get_number(Token *tok) { //검사할 토큰의 주소를 인자로 받음
   if (tok->kind != TK_NUM) // 현재 조사중인 토큰이 숫자가 맞는지 확인해줄 함수임.
-    error("expected a number");
-  return tok->val;
+    error("expected a number"); 
+  return tok->val; // if문에서 걸러지지 않았다면 숫자가 맞을테니 val에 입력.
 }
 
-static Token *new_token(TokenKind kind, char *start, char *end) {
-  Token *tok = calloc(1, sizeof(Token));
+static Token *new_token(TokenKind kind, char *start, char *end) { 
+  // static Token *에서 생성된 새로운 토큰 객체의 메모리 주소를 반환함.
+  // 인자로는 만들고자 하는 인자의 종류와 소스코드 문자열의 시작과 끝 주소 셋을 받는다.
+  Token *tok = calloc(1, sizeof(Token)); // 토큰 크기만큼 heap영역에 메모리 공간을 마련한다.
   tok->kind = kind;
   tok->loc = start;
   tok->len = end - start;
-  return tok;
+  return tok; // 전부 집어넣어서 완성된 토큰의 주소를 반환한다.
 }
 
-static Token *tokenize(char *p) {
-  Token head = {};
-  Token *cur = &head;
+static Token *tokenize(char *p) { // 컴파일할 소스코드 문자열의 첫번째 글자 주소를 받는다.
+  Token head = {}; // 내용이 빈 토큰 머리다. 연결 리스트의 시작점을 쉽게 잡기 위함이다.
+  Token *cur = &head; // 현재 마지막 토큰이 어디인지 기억해줄 포인터다.
 
-  while (*p){
-    if (isspace(*p)) {
+  while (*p){ 
+    if (isspace(*p)) { // 현재 글자가 공백인지 검사한다.
       p++;
-      continue;
+      continue; // 맞다면 p++로 한칸 옮기고, 공백이 아니라면 continue로 아래 if문으로 진입.
     }
-    if (isdigit(*p)) {
+    if (isdigit(*p)) { // isdigit, 즉 현재 글자가 '0'부터 '9'까지의 숫자 문자인지 검사한다.
       cur = cur -> next = new_token(TK_NUM, p, p);
       char *q = p;
       cur->val = strtoul(p, &p, 10);
