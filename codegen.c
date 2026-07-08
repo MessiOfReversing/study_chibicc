@@ -14,8 +14,20 @@ static Obj *current_fn;
 static void gen_expr(Node *node);
 static void gen_stmt(Node *node);
 
-__attribute__((format(printf, 1, 2)))
-static void println(char *fmt, ...) {
+__attribute__((format(printf, 1, 2))) // 기존 C언어 printf와 동일하니 인자가 잘못된경우 에러문구도 printf에 맞게 내어달라는 GCC에게 하는 요청같은거임.
+static void println(char *fmt, ...) { // println의 기능을 정리하자면, 원하는대로 문자열 포맷을 지정해 출력하며, 마지막에 자동 줄바꿈을 붙여줌.
+  /*
+  format(printf, 1, 2) 에선 첫번째 파라미터인 1이 포맷 스트링이며, 2는 실제 포맷에 들어갈 데이터라는 의미다.
+  static void println(char *fmt, ...)는
+  static으로 이 소스코드 내로 스코프를 제한하고, ...로 2 파라미터를 타입과 개수를 정하지 않은채로 설정한다.
+  따라서 println("%d + %d = %d", 1, 2, 3);도 올바르게 진행하게 한다.
+  
+  va_list ap; 는 인자들의 목록을 가리킬 포인터 변수로 ap를 선언하고
+  va_start(ap, fmt); 에서는 fmt는 포맷 스트링이다.
+  vfprintf(output_file, fmt, ap); 여기서 fprintf란 가변인자 리스트를 통째로 넘겨받아 포맷팅할때 쓰는 함수다.
+  va_end(ap);
+  fprintf(output_file, "\n");
+  */
   va_list ap;
   va_start(ap, fmt);
   vfprintf(output_file, fmt, ap);
